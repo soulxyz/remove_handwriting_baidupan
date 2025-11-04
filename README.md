@@ -18,7 +18,8 @@
 
 ## 界面预览
 
-基于 ttkbootstrap 的现代化深色主题 GUI 界面，包含文件选择、实时日志、进度统计等功能模块。支持后台模式运行。
+基于 ttkbootstrap 的现代化深色主题 GUI 界面，包含文件选择、实时日志、进度统计等功能模块。支持后台模式运行。<img width="700" alt="image" src="https://github.com/user-attachments/assets/bd96260b-16c8-4aba-ab1f-6a0e15c69496" />
+
 
 ## 快速开始
 
