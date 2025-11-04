@@ -1,0 +1,77 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# 虚拟环境
+venv/
+ENV/
+env/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# 项目特定文件
+# Cookie 文件（包含登录信息，不要上传！）
+*.json
+!requirements.json
+
+# 输出文件夹
+output/
+downloads/
+
+# 截图和临时文件
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+*.webp
+qrcode_screenshot.png
+login_screenshot.png
+
+# 日志文件
+*.log
+logs/
+
+# 浏览器数据
+.playwright/
+.patchright/
+playwright-state.json
+
+# 测试文件
+test_*.py
+tests/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# 临时文件
+*.tmp
+*.temp
+*.bak
+*.swp
+

@@ -1,0 +1,20 @@
+# 百度网盘试卷去手写自动化工具依赖
+
+# 浏览器自动化（推荐使用patchright以获得更好的反检测）
+patchright>=1.0.0
+
+# 二维码生成（用于在控制台显示二维码）
+qrcode[pil]>=7.3.0
+Pillow>=9.0.0
+
+# 如果patchright无法安装，可以降级使用playwright
+# playwright>=1.40.0
+
+# 说明：
+# 1. 优先安装 patchright（更好的反检测能力）
+# 2. 如果安装失败，脚本会自动降级使用 playwright
+# 3. 安装后需要运行初始化命令：
+#    - patchright install chromium  (推荐)
+#    或
+#    - playwright install chromium  (备选)
+
