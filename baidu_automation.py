@@ -482,10 +482,11 @@ class BaiduPicFilter:
                 await self.page.goto(self.base_url, wait_until='domcontentloaded', timeout=self.nav_timeout)
                 await asyncio.sleep(1)
             
-            # 上传图片
+            # 上传图片（带重试机制）
             print("⬆️  [1/3] 上传图片...")
-            if not await self._upload_image(image_path):
-                raise Exception("上传失败")
+            upload_success = await self._upload_image_with_retry(image_path)
+            if not upload_success:
+                raise Exception("上传失败（已重试）")
             
             # 等待处理完成
             print("⏳ [2/3] 等待AI处理...")
@@ -506,6 +507,107 @@ class BaiduPicFilter:
             self.stats['failed'] += 1
             self.stats['failed_files'].append(file_name)
             return False
+    
+    async def _upload_image_with_retry(self, image_path: str) -> bool:
+        """
+        带重试机制的上传图片
+        
+        重试策略：
+        1. 第一次失败：重新导航到页面后重试（共2次尝试）
+        2. 第二次失败：重启浏览器后重试（共2次尝试）
+        
+        Args:
+            image_path: 图片文件路径
+            
+        Returns:
+            bool: 是否成功
+        """
+        file_name = Path(image_path).name
+        
+        # 第一阶段：页面重试（2次尝试）
+        print(f"\n   📤 第一阶段：页面重试...")
+        for attempt in range(1, 3):
+            print(f"   [{attempt}/2] 尝试上传...")
+            
+            if attempt > 1:
+                # 第二次尝试前重新导航到页面
+                print(f"   [重试] 重新导航到页面...")
+                try:
+                    await self.page.goto(self.base_url, wait_until='domcontentloaded', timeout=self.nav_timeout)
+                    await asyncio.sleep(2)
+                except Exception as e:
+                    print(f"   ⚠️  导航失败: {e}")
+            
+            # 尝试上传
+            if await self._upload_image(image_path):
+                print(f"   ✅ 上传成功（第 {attempt} 次尝试）")
+                return True
+            
+            if attempt < 2:
+                await asyncio.sleep(2)  # 等待后重试
+        
+        # 第二阶段：浏览器重启重试（2次尝试）
+        print(f"\n   🔄 第二阶段：浏览器重启重试...")
+        for attempt in range(1, 3):
+            print(f"   [{attempt}/2] 重启浏览器后尝试...")
+            
+            try:
+                # 关闭当前浏览器
+                print(f"   [重启] 关闭浏览器...")
+                if self.page:
+                    try:
+                        await self.page.close()
+                    except Exception:
+                        pass
+                
+                if self.context:
+                    try:
+                        await self.context.close()
+                    except Exception:
+                        pass
+                
+                if self.browser:
+                    try:
+                        await self.browser.close()
+                    except Exception:
+                        pass
+                
+                await asyncio.sleep(2)
+                
+                # 重启浏览器
+                print(f"   [重启] 启动新浏览器...")
+                await self.start()
+                
+                # 重新登录（使用已保存的Cookie）
+                print(f"   [重启] 检查登录状态...")
+                await self.ensure_login()
+                
+                await asyncio.sleep(2)
+                
+                # 导航到上传页面
+                print(f"   [重启] 导航到试卷去手写页面...")
+                await self.page.goto(self.base_url, wait_until='domcontentloaded', timeout=self.nav_timeout)
+                await asyncio.sleep(2)
+                
+                # 尝试上传
+                if await self._upload_image(image_path):
+                    print(f"   ✅ 上传成功（浏览器重启后第 {attempt} 次尝试）")
+                    return True
+                
+            except Exception as e:
+                print(f"   ⚠️  浏览器重启失败: {e}")
+                
+                # 尝试恢复
+                try:
+                    await self.start()
+                except Exception:
+                    pass
+            
+            if attempt < 2:
+                await asyncio.sleep(2)
+        
+        print(f"   ❌ 已尝试所有重试方案，图片 '{file_name}' 上传失败")
+        return False
     
     async def _upload_image(self, image_path: str) -> bool:
         """上传图片"""

@@ -208,9 +208,17 @@ class App(ttk.Window):
         self.image_entry.bind('<FocusIn>', self.on_input_focus_in)
         self.image_entry.bind('<FocusOut>', self.on_input_focus_out)
         
-        self.browse_button = ttk.Button(controls_frame, text="📂 选择文件/文件夹", 
-                                       command=self.browse_files, bootstyle="light-outline")
-        self.browse_button.grid(row=0, column=2, padx=5, pady=8)
+        # 文件选择按钮组
+        button_frame = ttk.Frame(controls_frame, style='Transparent.TFrame')
+        button_frame.grid(row=0, column=2, padx=5, pady=8)
+        
+        self.browse_files_button = ttk.Button(button_frame, text="📄 选择文件", 
+                                             command=self.browse_files, bootstyle="light-outline")
+        self.browse_files_button.pack(side=tk.LEFT, padx=(0, 2))
+        
+        self.browse_folder_button = ttk.Button(button_frame, text="📂 选择文件夹", 
+                                              command=self.browse_folder, bootstyle="light-outline")
+        self.browse_folder_button.pack(side=tk.LEFT, padx=(2, 0))
         
         self.start_button = ttk.Button(controls_frame, text="🚀 开始处理", 
                                       command=self.start_process, bootstyle="success")
@@ -296,7 +304,32 @@ class App(ttk.Window):
         )
         if files:
             self.on_input_focus_in(None)
+            if len(files) > 50:
+                result = messagebox.askyesno(
+                    "文件数量较多", 
+                    f"您选择了 {len(files)} 个文件。\n\n建议单次处理不超过50个文件以获得最佳体验。\n\n是否继续选择这些文件？",
+                    parent=self
+                )
+                if not result:
+                    return
             self.image_var.set(";".join(files))
+    
+    def browse_folder(self):
+        """浏览文件夹"""
+        folder = filedialog.askdirectory(
+            title="选择包含图片的文件夹",
+            parent=self
+        )
+        if folder:
+            self.on_input_focus_in(None)
+            self.image_var.set(folder)
+            
+            # 显示提示信息
+            messagebox.showinfo(
+                "文件夹已选择", 
+                f"已选择文件夹: {Path(folder).name}\n\n程序将在开始处理时扫描该文件夹中的所有图片文件。\n\n如果文件夹包含大量图片，扫描可能需要一些时间。",
+                parent=self
+            )
     
     def browse_output(self):
         """浏览输出文件夹"""
@@ -362,7 +395,7 @@ class App(ttk.Window):
         self.log_text.yview(tk.END)
     
     def get_image_files(self):
-        """获取图片文件列表"""
+        """获取图片文件列表（同步版本，用于快速验证）"""
         input_str = self.image_var.get().strip()
         
         if not input_str or input_str == self.placeholder_text:
@@ -374,17 +407,68 @@ class App(ttk.Window):
         else:
             files = [input_str]
         
-        # 过滤存在的文件
+        # 快速检查是否有大文件夹（避免同步扫描大量文件）
+        for file_path in files:
+            path = Path(file_path)
+            if path.exists() and path.is_dir():
+                # 如果是文件夹，只做基本验证，实际扫描在异步中进行
+                return "FOLDER_TO_SCAN"
+        
+        # 对于直接选择的文件，立即处理
         valid_files = []
         for file_path in files:
             path = Path(file_path)
-            if path.exists():
-                if path.is_file():
+            if path.exists() and path.is_file():
+                if path.suffix.lower() in ['.jpg', '.jpeg', '.png', '.webp', '.bmp']:
                     valid_files.append(str(path))
-                elif path.is_dir():
-                    for img_file in path.glob("*"):
-                        if img_file.suffix.lower() in ['.jpg', '.jpeg', '.png', '.webp', '.bmp']:
-                            valid_files.append(str(img_file))
+        
+        return valid_files if valid_files else None
+    
+    async def get_image_files_async(self):
+        """异步获取图片文件列表（用于处理大量文件）"""
+        input_str = self.image_var.get().strip()
+        
+        if not input_str or input_str == self.placeholder_text:
+            return None
+        
+        # 支持多文件选择
+        if ";" in input_str:
+            files = [f.strip() for f in input_str.split(";") if f.strip()]
+        else:
+            files = [input_str]
+        
+        valid_files = []
+        total_scanned = 0
+        
+        for file_path in files:
+            path = Path(file_path)
+            if not path.exists():
+                continue
+                
+            if path.is_file():
+                if path.suffix.lower() in ['.jpg', '.jpeg', '.png', '.webp', '.bmp']:
+                    valid_files.append(str(path))
+            elif path.is_dir():
+                logger.info(f"🔍 正在扫描文件夹: {path.name}")
+                
+                # 异步扫描文件夹
+                for img_file in path.rglob("*"):  # 使用 rglob 递归扫描
+                    if img_file.is_file() and img_file.suffix.lower() in ['.jpg', '.jpeg', '.png', '.webp', '.bmp']:
+                        valid_files.append(str(img_file))
+                        total_scanned += 1
+                        
+                        # 每扫描50个文件更新一次进度
+                        if total_scanned % 50 == 0:
+                            logger.info(f"📊 已扫描到 {total_scanned} 个图片文件...")
+                            await asyncio.sleep(0.01)  # 让出控制权，避免阻塞
+                        
+                        # 限制单次处理的文件数量
+                        if len(valid_files) >= 500:  # 限制最多500个文件
+                            logger.warning(f"⚠️  文件数量过多，已达到限制 ({len(valid_files)} 个)，停止扫描")
+                            logger.warning("💡 建议分批处理或选择更小的文件夹")
+                            break
+                
+                logger.info(f"✅ 文件夹扫描完成，共找到 {len(valid_files)} 个图片文件")
         
         return valid_files if valid_files else None
     
@@ -395,22 +479,55 @@ class App(ttk.Window):
             messagebox.showwarning("输入错误", "请输入有效的图片文件路径或文件夹。", parent=self)
             return
         
-        self.start_button.config(text="⏹️ 取消处理", command=self.cancel_process, bootstyle="danger")
-        self.browse_button.config(state="disabled")
-        self.image_entry.config(state="disabled")
-        
-        self.log_text.config(state="normal")
-        self.log_text.delete(1.0, tk.END)
-        self.log_text.config(state="disabled")
-        
-        self.status_var.set("⏳ 处理中...")
-        
-        self.process_thread = threading.Thread(
-            target=self.run_async_process,
-            args=(image_files,),
-            daemon=True
-        )
-        self.process_thread.start()
+        # 检查是否需要异步扫描大文件夹
+        if image_files == "FOLDER_TO_SCAN":
+            # 显示扫描提示
+            self.status_var.set("🔍 正在扫描文件夹...")
+            self.start_button.config(text="⏹️ 取消扫描", command=self.cancel_process, bootstyle="warning")
+            self.browse_files_button.config(state="disabled")
+            self.browse_folder_button.config(state="disabled")
+            self.image_entry.config(state="disabled")
+            
+            self.log_text.config(state="normal")
+            self.log_text.delete(1.0, tk.END)
+            self.log_text.config(state="disabled")
+            
+            logger.info("🔍 开始扫描文件夹，请稍候...")
+            
+            # 启动异步扫描
+            self.process_thread = threading.Thread(
+                target=self.run_async_scan_and_process,
+                daemon=True
+            )
+            self.process_thread.start()
+        else:
+            # 直接处理已选择的文件
+            if len(image_files) > 100:
+                result = messagebox.askywarning(
+                    "文件数量较多", 
+                    f"您选择了 {len(image_files)} 个文件，处理可能需要较长时间。\n\n建议单次处理不超过50个文件以获得最佳体验。\n\n是否继续？",
+                    parent=self
+                )
+                if not result:
+                    return
+            
+            self.start_button.config(text="⏹️ 取消处理", command=self.cancel_process, bootstyle="danger")
+            self.browse_files_button.config(state="disabled")
+            self.browse_folder_button.config(state="disabled")
+            self.image_entry.config(state="disabled")
+            
+            self.log_text.config(state="normal")
+            self.log_text.delete(1.0, tk.END)
+            self.log_text.config(state="disabled")
+            
+            self.status_var.set("⏳ 处理中...")
+            
+            self.process_thread = threading.Thread(
+                target=self.run_async_process,
+                args=(image_files,),
+                daemon=True
+            )
+            self.process_thread.start()
     
     def cancel_process(self):
         """取消处理"""
@@ -424,6 +541,83 @@ class App(ttk.Window):
             return
         for task in asyncio.all_tasks(loop=self.process_loop):
             task.cancel()
+    
+    def run_async_scan_and_process(self):
+        """运行异步扫描和处理"""
+        import warnings
+        
+        # 抑制 Windows asyncio 的资源警告
+        warnings.filterwarnings('ignore', category=ResourceWarning)
+        
+        self.process_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self.process_loop)
+        
+        try:
+            self.process_loop.run_until_complete(self.async_scan_and_process_logic())
+        except asyncio.CancelledError:
+            logger.info('⚠️  扫描已被取消')
+        except Exception as e:
+            logger.error(f'❌ 扫描出错: {e}')
+        finally:
+            try:
+                # 取消所有待处理任务
+                pending = asyncio.all_tasks(self.process_loop)
+                for task in pending:
+                    task.cancel()
+                # 运行一次循环以处理取消
+                self.process_loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+            except Exception:
+                pass
+            finally:
+                self.process_loop.close()
+                self.process_loop = None
+                self.on_process_complete()
+    
+    async def async_scan_and_process_logic(self):
+        """异步扫描和处理逻辑"""
+        try:
+            # 先异步扫描文件
+            logger.info("🔍 开始异步扫描文件...")
+            image_files = await self.get_image_files_async()
+            
+            if not image_files:
+                logger.warning("⚠️  未找到有效的图片文件")
+                return
+            
+            logger.info(f"📊 扫描完成，共找到 {len(image_files)} 个图片文件")
+            
+            # 如果文件数量过多，询问用户是否继续
+            if len(image_files) > 100:
+                # 在主线程中显示确认对话框
+                result_event = asyncio.Event()
+                result_holder = {'value': False}
+                
+                def show_confirmation():
+                    result = messagebox.askyesno(
+                        "文件数量较多", 
+                        f"扫描到 {len(image_files)} 个图片文件。\n\n处理大量文件可能需要很长时间，建议分批处理。\n\n是否继续处理所有文件？",
+                        parent=self
+                    )
+                    result_holder['value'] = result
+                    self.process_loop.call_soon_threadsafe(result_event.set)
+                
+                self.after(0, show_confirmation)
+                await result_event.wait()
+                
+                if not result_holder['value']:
+                    logger.info("⚠️  用户取消处理")
+                    return
+            
+            # 更新状态为处理中
+            self.after(0, lambda: self.status_var.set("⏳ 处理中..."))
+            self.after(0, lambda: self.start_button.config(text="⏹️ 取消处理", bootstyle="danger"))
+            
+            # 开始处理文件
+            await self.async_process_logic(image_files)
+            
+        except Exception as e:
+            logger.error(f"❌ 扫描和处理过程出错: {e}")
+            raise
     
     def run_async_process(self, image_files):
         """运行异步处理"""
@@ -519,7 +713,8 @@ class App(ttk.Window):
         """处理完成"""
         self.start_button.config(text="🚀 开始处理", command=self.start_process, bootstyle="success")
         self.start_button.config(state="normal")
-        self.browse_button.config(state="normal")
+        self.browse_files_button.config(state="normal")
+        self.browse_folder_button.config(state="normal")
         self.image_entry.config(state="normal")
         
         self.status_var.set("✅ 就绪")
